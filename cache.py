@@ -64,7 +64,7 @@ class line:
                 target_way=self.lru.pop(0)
                 target=self.way[target_way]
                 print 'EVICTION ON WAY '+str(target_way)
-                if target_way.dirty:
+                if target.dirty:
                     print 'WRITEBACK'
                 target.valid=1
                 target.dirty=0
@@ -101,7 +101,7 @@ class line:
                 target_way=self.lru.pop(0)
                 target=self.way[target_way]
                 print 'EVICTION ON WAY '+str(target_way)
-                if target_way.dirty:
+                if target.dirty:
                     print 'WRITEBACK'
                 target.valid=1
                 target.dirty=1
@@ -162,4 +162,8 @@ if __name__=='__main__':
     print c.read(0x12345678)
     print c
     print c.write(0x12345678, 0xbb)
+    print c
+    print c.read(0x12349678)
+    print c
+    print c.read(0x1234d678)
     print c
