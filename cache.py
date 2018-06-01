@@ -4,7 +4,13 @@ import time
 
 random.seed(time.time())
 
-C_ALLOC=[8, 8]
+CORE_NUM=4
+BLOCK_SIZE=32
+WAY_NUM=16
+LINE_NUM=128
+ADDR_SIZE=64
+M_PERIOD=1000000
+C_ALLOC=[WAY_NUM/CORE_NUM for i in range(CORE_NUM)]
 SET_NUM=32
 
 def process_addr(addr, bsize, lnum, addr_size):
@@ -30,7 +36,7 @@ class block:
         if self.tag==None:
             return_str='None/None'
         else:
-            return_str=str(hex(self.tag))+'/'+str(hex(self.data))
+            return_str=str(hex(self.tag))+'/'+str((self.data))
         return_str=return_str+' {}/{}/{}'.format(self.valid, self.dirty, self.cid)
         return return_str
 
@@ -39,7 +45,7 @@ class line:
         self.nway=way
         self.way=[]
         self.lru=[]
-        self.miss=[0, 0]
+        self.miss=[0 for i in range(CORE_NUM)]
         for i in xrange(way):
             self.way.append(block())
 
@@ -62,11 +68,11 @@ class line:
         # print 'READ'
         for i in xrange(self.nway):
             b=self.way[i]
-            if b.valid and b.tag==tag and b.cid == cid:
+            if b.valid and b.tag==tag:
                 # print 'cache HIT'
                 self.lru.remove(i)
                 self.lru.append(i)
-                b.hit+=1
+                self.way[i].hit+=1
                 return b.data
         else:
             # print 'cache MISS'
@@ -84,7 +90,6 @@ class line:
                 target.data=0xa
                 target.tag=tag
                 target.cid=cid
-                target.hit+=1
                 self.lru.append(target_way)
                 return target.data
             else:
@@ -96,7 +101,6 @@ class line:
                 target.data=0xa
                 target.tag=tag
                 target.cid=cid
-                target.hit+=1
                 self.lru.append(write_line)
                 return target.data
 
@@ -108,9 +112,9 @@ class line:
                 # print 'cache HIT'
                 self.lru.remove(i)
                 self.lru.append(i)
-                b.dirty=1
+                self.way[i].dirty=1
                 b.data=data
-                b.hit+=1
+                self.way[i].hit+=1
                 return True
         else:
             # print 'cache MISS'
@@ -128,7 +132,6 @@ class line:
                 target.data=data
                 target.tag=tag
                 target.cid=cid
-                target.hit+=1
                 self.lru.append(target_way)
                 return True
             else:
@@ -140,7 +143,6 @@ class line:
                 target.data=data
                 target.tag=tag
                 target.cid=cid
-                target.hit+=1
                 self.lru.append(write_line)
                 return True
         return False
@@ -157,16 +159,27 @@ class line:
             if self.way[i].cid == cid:
                 return i
 
+    def get_first_block_not(self, cid):
+        for i in range(self.nway):
+            if self.way[i].cid != cid:
+                return i
+
     def evict(self, cid):
-        if self.count(cid) < C_ALLOC[cid]:
-            return self.get_first_block((cid+1)%2)
+        # print self.count(cid), C_ALLOC
+        if self.count(cid) < C_ALLOC[cid] or self.count(cid) == 0:
+            # print "evict not mine"
+            # print self.get_first_block_not(cid)
+            return self.get_first_block_not(cid)
         else:
+            # print "evict mine"
+            # print self.get_first_block(cid)
             return self.get_first_block(cid)
 
 
 class cache:
-    def __init__(self, bsize, wnum, lnum, addr_size, mperiod):
+    def __init__(self, cnum, bsize, wnum, lnum, addr_size, mperiod):
         self.line=[]
+        self.cnum=cnum
         self.wnum=wnum
         self.lnum=lnum
         self.bsize=bsize
@@ -187,8 +200,7 @@ class cache:
 
     def read(self, addr, cid):
         tag, index, offset=process_addr(addr, self.bsize, self.lnum, self.addr_size)
-        read_line=self.line[index]
-        data=read_line.read(tag, offset, cid)
+        data=self.line[index].read(tag, offset, cid)
         self.opnum+=1
         if self.opnum%self.mperiod == 0:
             self.repartition()
@@ -196,8 +208,7 @@ class cache:
 
     def write(self, addr, data, cid):
         tag, index, offset=process_addr(addr, self.bsize, self.lnum, self.addr_size)
-        write_line=self.line[index]
-        success=write_line.write(tag, offset, data, cid)
+        success=self.line[index].write(tag, offset, data, cid)
         self.opnum+=1 
         if self.opnum%self.mperiod == 0:
             self.repartition()
@@ -218,38 +229,97 @@ class cache:
                 # print "lru need", k, "line_utility", line_utility
                 break
         # print "for loop done"
-        if line_utility+self.line[lid].miss[cid] != 0:
-            return float(line_utility)/(line_utility+self.line[lid].miss[cid])
-        return 0
+        return line_utility
+
+    def get_max_mu(self, p, alloc, balance):
+        max_mu=-float("inf")
+        req=0
+        for j in range(balance):
+            mu=self.get_mu_value(p, alloc, alloc+j+1)
+            if mu > max_mu:
+                max_mu=mu
+                req=j+1
+        return max_mu, req
+
+    def get_mu_value(self, p, a, b):
+        miss_a=0; miss_b=0      
+        for i in range(SET_NUM):
+            miss_a += self.get_utility_from_line(a, i*LINE_NUM/SET_NUM, p)
+            miss_b += self.get_utility_from_line(b, i*LINE_NUM/SET_NUM, p)
+        return (miss_b-miss_a)/float(b-a)
 
     def repartition(self):
         global C_ALLOC
-        max_utility=-float("inf")
-        max_alloc=[0,0]
-        for i in range(self.wnum-1):
-            tmp_utility=0
-            for j in range(SET_NUM):
-                alloc=i+1
-                a_line_utility=self.get_utility_from_line(alloc, j*self.lnum/SET_NUM, 0)
-                b_line_utility=self.get_utility_from_line(self.wnum-alloc, j*self.lnum/SET_NUM, 1)
-            tmp_utility=a_line_utility+b_line_utility
-            if max_utility < tmp_utility:
-                max_utility=tmp_utility
-                max_alloc=[alloc, self.wnum-alloc]
+        max_alloc=[1 for i in range(self.cnum)]
+        balance=self.wnum - self.cnum
+        while balance != 0:
+            max_mu=[0 for i in range(self.cnum)]
+            blocks_req=[0 for i in range(self.cnum)]
+            for i in range(self.cnum):
+                alloc=max_alloc[i]
+                max_mu[i], blocks_req[i]=self.get_max_mu(i, alloc, balance)
+            winner=max_mu.index(max(max_mu))
+            max_alloc[winner] += blocks_req[winner]
+            balance -= blocks_req[winner]
         C_ALLOC=max_alloc
+        print C_ALLOC
 
+    def get_result(self):
+        hit=0; miss=0
+        for i in range(self.lnum):
+            miss+=sum(self.line[i].miss)
+            for j in range(self.wnum):
+                hit+=self.line[i].way[j].hit
+
+        return miss/float(hit+miss)*100
 
 if __name__=='__main__':
-    c=cache(32, 16, 512, 32, 5000)
-    '''
-    print c.read(0x12345678, 1)
-    print c
-    print c.write(0x12345678, 0xbb, 1)
-    print c
-    '''
+    c=cache(CORE_NUM, BLOCK_SIZE, WAY_NUM, LINE_NUM, ADDR_SIZE, M_PERIOD)
     idx=0
-    while idx<1000000:
-        c.read(int(random.random()*0xffffffff), 0 if random.random()<0.7 else 1)
-        c.write(int(random.random()*0xffffffff),0xbb, 0 if random.random()<0.7 else 1)
-        idx+=1
+    f=open('/home/guest/memory_trace_blackscholes.out', 'r')
+    read_idx=0
+    thread_list=dict()
+    thread_core=dict()
+    thread_id=0
+    read_dict=dict()
+    write_dict=dict()
+
+    for i in f:
+        s=i.split()
+        timestamp=str(s[0])
+        tid=s[1]
+        if int(tid)==4294967296:
+            continue
+        else:
+            if s[2]=='tr':
+                thread_list[tid]=thread_id
+                read_dict[thread_id]=0
+                write_dict[thread_id]=0
+                thread_core[thread_id]=thread_id%4
+                thread_id+=1
+            elif s[2]=='m':
+                tid=thread_list[s[1]]
+                if 'r' in s:
+                    idx=s.index('r')
+                    read_addr=int(s[idx+1])
+                    read_size=int(s[idx+2])
+                    read_dict[tid]+=1
+                    c.read(read_addr, thread_core[tid])
+                if 'r2' in s:
+                    idx=s.index('r2')
+                    read_addr=int(s[idx+1])
+                    read_dict[tid]+=1
+                    c.read(read_addr)
+                if 'w' in s:
+                    idx=s.index('w')
+                    write_addr=int(s[idx+1])
+                    write_size=int(s[idx+2])
+                    write_dict[tid]+=1
+                    c.write(write_addr,"bb", thread_core[tid])
+            elif s[2]=='tf':
+                del thread_list[s[1]]
+            read_idx+=1
+            if read_idx%100000==0:
+                print read_idx
     print C_ALLOC
+    print c.get_result()
