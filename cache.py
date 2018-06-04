@@ -1,15 +1,16 @@
 from math import log
 import random
+import sys
 import time
 
 random.seed(time.time())
 
 CORE_NUM=4
-BLOCK_SIZE=32
-WAY_NUM=16
-LINE_NUM=128
+BLOCK_SIZE=8
+WAY_NUM=32
+LINE_NUM=1024
 ADDR_SIZE=64
-M_PERIOD=1000000
+M_PERIOD=5000000
 C_ALLOC=[WAY_NUM/CORE_NUM for i in range(CORE_NUM)]
 SET_NUM=32
 
@@ -155,13 +156,13 @@ class line:
         return num
 
     def get_first_block(self, cid):
-        for i in range(self.nway):
-            if self.way[i].cid == cid:
+        for i in range(len(self.lru)):
+            if self.way[self.lru[i]].cid == cid:
                 return i
 
     def get_first_block_not(self, cid):
-        for i in range(self.nway):
-            if self.way[i].cid != cid:
+        for i in range(len(self.lru)):
+            if self.way[self.lru[i]].cid != cid:
                 return i
 
     def evict(self, cid):
@@ -276,7 +277,9 @@ class cache:
 if __name__=='__main__':
     c=cache(CORE_NUM, BLOCK_SIZE, WAY_NUM, LINE_NUM, ADDR_SIZE, M_PERIOD)
     idx=0
-    f=open('/home/guest/memory_trace_blackscholes.out', 'r')
+    #f=open('/home/ahn/parsec-3.0/pkgs/apps/freqmine/run/memory_trace.out', 'r')
+    f=open('/home/guest/memory_trace_freqmine.out', 'r')
+    #f=open('/home/guest/memory_trace_swaptions.out', 'r')
     read_idx=0
     thread_list=dict()
     thread_core=dict()
@@ -287,8 +290,18 @@ if __name__=='__main__':
     for i in f:
         s=i.split()
         timestamp=str(s[0])
-        tid=s[1]
-        if int(tid)==4294967296:
+        try:
+            tid=s[1]
+            int(s[1])
+        except:
+            print "parse error",i
+            continue
+        try:
+            s[2]
+        except:
+            print "parse error2", i
+            continue
+        if int(tid)==294967296:
             continue
         else:
             if s[2]=='tr':
@@ -301,25 +314,39 @@ if __name__=='__main__':
                 tid=thread_list[s[1]]
                 if 'r' in s:
                     idx=s.index('r')
-                    read_addr=int(s[idx+1])
-                    read_size=int(s[idx+2])
-                    read_dict[tid]+=1
-                    c.read(read_addr, thread_core[tid])
+                    try:
+                        read_addr=int(s[idx+1])
+                        read_size=int(s[idx+2])
+                        read_dict[tid]+=1
+                        c.read(read_addr, thread_core[tid])
+                    except:
+                        print "read error", i
                 if 'r2' in s:
                     idx=s.index('r2')
-                    read_addr=int(s[idx+1])
-                    read_dict[tid]+=1
-                    c.read(read_addr)
+                    try: 
+                        read_addr=int(s[idx+1])
+                        read_dict[tid]+=1
+                        c.read(read_addr, thread_core[tid])
+                    except:
+                        print "read2 error", i
                 if 'w' in s:
                     idx=s.index('w')
-                    write_addr=int(s[idx+1])
-                    write_size=int(s[idx+2])
-                    write_dict[tid]+=1
-                    c.write(write_addr,"bb", thread_core[tid])
+                    try:
+                        write_addr=int(s[idx+1])
+                        write_size=int(s[idx+2])
+                        write_dict[tid]+=1
+                        c.write(write_addr,"bb", thread_core[tid])
+                    except:
+                        print "write error", i
             elif s[2]=='tf':
-                del thread_list[s[1]]
+                try:
+                    del thread_list[s[1]]
+                except:
+                    print "thread finish error", i
             read_idx+=1
             if read_idx%100000==0:
                 print read_idx
     print C_ALLOC
     print c.get_result()
+    for i in range(LINE_NUM):
+        print c.line[i].miss
