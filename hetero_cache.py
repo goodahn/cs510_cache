@@ -12,6 +12,7 @@ LINE_NUM=512
 ADDR_SIZE=64
 M_PERIOD=5000000
 NOT_INCLUDE_TID=294967296
+NOT_INCLUDE_TID2=294967296
 C_ALLOC=[WAY_NUM/CORE_NUM for i in range(CORE_NUM)]
 SET_NUM=32
 METRIC=0
@@ -74,7 +75,7 @@ class line:
         self.access[cid]+=1
         for i in xrange(self.nway):
             b=self.way[i]
-            if b.valid and b.tag==tag:
+            if b.valid and b.tag==tag and b.cid == cid:
                 # print 'cache HIT'
                 self.lru.remove(i)
                 self.lru.append(i)
@@ -291,20 +292,40 @@ if __name__=='__main__':
     global NOT_INCLUDE_TID
     c=cache(CORE_NUM, BLOCK_SIZE, WAY_NUM, LINE_NUM, ADDR_SIZE, M_PERIOD)
     idx=0
-    '''
     if sys.argv[1] == "ferret":
-        filename='/home/ahn/parsec-3.0/pkgs/apps/ferret/run/memory_trace_8.out'
-    elif sys.argv[1] == "swaptions":
-        filename='/home/ahn/parsec-3.0/pkgs/apps/swaptions/run/memory_trace_8.out'
-    elif sys.argv[1] == "blackscholes":
         NOT_INCLUDE_TID=4294967296
-        filename='/home/ahn/parsec-3.0/pkgs/apps/blackscholes/run/memory_trace_8.out'
+        filename='/home/ahn/parsec-3.0/pkgs/apps/ferret/run/memory_trace.out'
+    elif sys.argv[1] == "swaptions":
+        filename='/home/ahn/parsec-3.0/pkgs/apps/swaptions/run/memory_trace.out'
     elif sys.argv[1] == "canneal":
-        filename='/home/ahn/parsec-3.0/pkgs/kernels/canneal/run/memory_trace_8.out'
+        NOT_INCLUDE_TID=4294967296
+        filename='/home/ahn/parsec-3.0/pkgs/kernels/canneal/run/memory_trace.out'
     elif sys.argv[1] == "freqmine":
-        filename='/home/ahn/parsec-3.0/pkgs/apps/freqmine/run/memory_trace_8.out'
-    '''
+        filename='/home/ahn/parsec-3.0/pkgs/apps/freqmine/run/memory_trace.out'
+    elif sys.argv[1] == "vips":
+        NOT_INCLUDE_TID=4294967296
+        filename='/home/ahn/parsec-3.0/pkgs/apps/vips/run/memory_trace.out'
+    elif sys.argv[1] == "bodytrack":
+        NOT_INCLUDE_TID=4294967296
+        filename='/home/ahn/parsec-3.0/pkgs/apps/bodytrack/run/memory_trace.out'
 
+    if sys.argv[2] == "ferret":
+        NOT_INCLUDE_TID2=4294967296
+        filename2='/home/ahn/parsec-3.0/pkgs/apps/ferret/run/memory_trace.out'
+    elif sys.argv[2] == "swaptions":
+        filename2='/home/ahn/parsec-3.0/pkgs/apps/swaptions/run/memory_trace.out'
+    elif sys.argv[2] == "canneal":
+        NOT_INCLUDE_TID2=4294967296
+        filename2='/home/ahn/parsec-3.0/pkgs/kernels/canneal/run/memory_trace.out'
+    elif sys.argv[2] == "freqmine":
+        filename2='/home/ahn/parsec-3.0/pkgs/apps/freqmine/run/memory_trace.out'
+    elif sys.argv[2] == "vips":
+        NOT_INCLUDE_TID2=4294967296
+        filename2='/home/ahn/parsec-3.0/pkgs/apps/vips/run/memory_trace.out'
+    elif sys.argv[2] == "bodytrack":
+        NOT_INCLUDE_TID2=4294967296
+        filename2='/home/ahn/parsec-3.0/pkgs/apps/bodytrack/run/memory_trace.out'
+    '''
     if sys.argv[1] == "ferret":
         NOT_INCLUDE_TID=4294967296
         filename='/home/guest/memory_trace_ferret.out'
@@ -324,8 +345,17 @@ if __name__=='__main__':
     elif sys.argv[1] == "vips":
         NOT_INCLUDE_TID=4294967296
         filename='/home/guest/memory_trace_vips.out'
+    '''
 
     f=open(filename, 'r')
+    f2=open(filename2, 'r')
+
+    if f.tell() > f2.tell():
+        big=f
+        small=f2
+    else:
+        big=f2
+        small=f
 
     read_idx=0
     thread_list=dict()
@@ -334,65 +364,151 @@ if __name__=='__main__':
     read_dict=dict()
     write_dict=dict()
 
-    for i in f:
-        s=i.split()
-        timestamp=str(s[0])
-        try:
-            tid=s[1]
-            int(s[1])
-        except:
-            print "parse error",i
-            continue
-        try:
-            s[2]
-        except:
-            print "parse error2", i
-            continue
-        if int(tid)==NOT_INCLUDE_TID:
-            continue
-        else:
-            if s[2]=='tr':
-                thread_list[tid]=thread_id
-                read_dict[thread_id]=0
-                write_dict[thread_id]=0
-                thread_core[thread_id]=thread_id%4
-                thread_id+=1
-            elif s[2]=='m':
-                tid=thread_list[s[1]]
-                if 'r' in s:
-                    idx=s.index('r')
+    line1=big.readline()
+    line2=small.readline()
+    while line1 != "":
+        if line1 != "":
+            s=line1.split()
+            timestamp=str(s[0])
+            try:
+                tid=s[1]
+                int(s[1])
+            except:
+                print "parse error",line1
+                line1=big.readline()
+                continue
+            try:
+                s[2]
+            except:
+                print "parse error2", line1
+                line1=big.readline()
+                continue
+            if int(tid)==NOT_INCLUDE_TID:
+                line1=big.readline()
+                continue
+            else:
+                if s[2]=='tr':
+                    thread_list[tid]=thread_id
+                    read_dict[thread_id]=0
+                    write_dict[thread_id]=0
+                    thread_core[thread_id]=thread_id%(CORE_NUM//2)
+                    thread_id+=1
+                elif s[2]=='m':
+                    tid=thread_list[s[1]]
+                    if 'r' in s:
+                        idx=s.index('r')
+                        try:
+                            read_addr=int(s[idx+1])
+                            read_size=int(s[idx+2])
+                            read_dict[tid]+=1
+                            c.read(read_addr, thread_core[tid])
+                        except:
+                            line1=big.readline()
+                            print "read error", line1
+                            continue
+                    if 'r2' in s:
+                        idx=s.index('r2')
+                        try: 
+                            read_addr=int(s[idx+1])
+                            read_dict[tid]+=1
+                            c.read(read_addr, thread_core[tid])
+                        except:
+                            line1=big.readline()
+                            print "read2 error", line1
+                            continue
+                    if 'w' in s:
+                        idx=s.index('w')
+                        try:
+                            write_addr=int(s[idx+1])
+                            write_size=int(s[idx+2])
+                            write_dict[tid]+=1
+                            c.write(write_addr,"bb", thread_core[tid])
+                        except:
+                            line1=big.readline()
+                            print "write error", line1
+                            continue
+                elif s[2]=='tf':
                     try:
-                        read_addr=int(s[idx+1])
-                        read_size=int(s[idx+2])
-                        read_dict[tid]+=1
-                        c.read(read_addr, thread_core[tid])
+                        del thread_list[s[1]]
                     except:
-                        print "read error", i
-                if 'r2' in s:
-                    idx=s.index('r2')
-                    try: 
-                        read_addr=int(s[idx+1])
-                        read_dict[tid]+=1
-                        c.read(read_addr, thread_core[tid])
-                    except:
-                        print "read2 error", i
-                if 'w' in s:
-                    idx=s.index('w')
+                        line1=big.readline()
+                        print "thread finish error", line1
+                        continue
+                read_idx+=1
+                if read_idx%100000==0:
+                    print "big", read_idx
+        line1=big.readline()
+        while True:
+            s2=line2.split()
+            timestamp=str(s2[0])
+            try:
+                tid=s2[1]+"0"
+                int(s2[1])
+            except:
+                line2=small.readline()
+                print "parse error",line2
+                continue
+            try:
+                s2[2]
+            except:
+                line2=small.readline()
+                print "parse error2", line2
+                continue
+            if int(tid)==NOT_INCLUDE_TID2:
+                line2=small.readline()
+                continue
+            else:
+                if s2[2]=='tr':
+                    thread_list[tid]=thread_id
+                    read_dict[thread_id]=0
+                    write_dict[thread_id]=0
+                    thread_core[thread_id]=thread_id%(CORE_NUM//2)+(CORE_NUM//2)
+                    thread_id+=1
+                elif s2[2]=='m':
+                    tid=thread_list[s2[1]+"0"]
+                    if 'r' in s2:
+                        idx=s2.index('r')
+                        try:
+                            read_addr=int(s2[idx+1])
+                            read_size=int(s2[idx+2])
+                            read_dict[tid]+=1
+                            c.read(read_addr, thread_core[tid])
+                        except:
+                            line2=small.readline()
+                            print "read error", line2
+                            continue
+                    if 'r2' in s2:
+                        idx=s2.index('r2')
+                        try: 
+                            read_addr=int(s2[idx+1])
+                            read_dict[tid]+=1
+                            c.read(read_addr, thread_core[tid])
+                        except:
+                            line2=small.readline()
+                            print "read2 error", line2
+                            continue
+                    if 'w' in s2:
+                        idx=s2.index('w')
+                        try:
+                            write_addr=int(s2[idx+1])
+                            write_size=int(s2[idx+2])
+                            write_dict[tid]+=1
+                            c.write(write_addr,"bb", thread_core[tid])
+                        except:
+                            line2=small.readline()
+                            print "write error", line2
+                            continue
+                elif s2[2]=='tf':
                     try:
-                        write_addr=int(s[idx+1])
-                        write_size=int(s[idx+2])
-                        write_dict[tid]+=1
-                        c.write(write_addr,"bb", thread_core[tid])
+                        del thread_list[s2[1]+"0"]
                     except:
-                        print "write error", i
-            elif s[2]=='tf':
-                try:
-                    del thread_list[s[1]]
-                except:
-                    print "thread finish error", i
-            read_idx+=1
-            if read_idx%100000==0:
-                print read_idx
+                        line2=small.readline()
+                        print "thread finish error", line2
+                        continue
+            if line2 == "":
+                small.seek(0)
+            line2=small.readline()
+            break
     print C_ALLOC
     print 'Miss rate: {}%'.format(c.get_result())
     print 'Metric: {}'.format(METRIC)
